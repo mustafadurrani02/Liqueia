@@ -1,4 +1,5 @@
 import {
+  app,
   BrowserWindow,
   WebContentsView,
   nativeTheme,
@@ -8,6 +9,8 @@ import {
 } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
+import { writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import {
   type BrowserSettings,
   type BrowserSnapshot,
@@ -28,12 +31,20 @@ export class BrowserController {
   private readonly tabs = new Map<string, BrowserTab>()
   private readonly store = new BrowserStore()
   private readonly closedTabs: Array<Pick<TabState, 'title' | 'url'>> = []
+  private readonly browserSession: Electron.Session
   private activeTabId: string | null = null
   private chromeOverlayVisible = false
   private focusMode = false
   private downloadItems = new Map<string, ElectronDownloadItem>()
+  private snapshotTimer: NodeJS.Timeout | null = null
 
-  constructor(private readonly window: BrowserWindow) {
+  constructor(
+    private readonly window: BrowserWindow,
+    private readonly privateMode = false
+  ) {
+    this.browserSession = privateMode
+      ? session.fromPartition(`liqueia-private-${randomUUID()}`)
+      : session.defaultSession
     this.configureSession()
     this.window.on('resize', () => this.layoutViews())
     this.window.on('maximize', () => this.layoutViews())
@@ -63,7 +74,9 @@ export class BrowserController {
         contextIsolation: true,
         sandbox: true,
         nodeIntegration: false,
-        spellcheck: true
+        spellcheck: true,
+        session: this.browserSession,
+        backgroundThrottling: true
       }
     })
     const tab: BrowserTab = {
@@ -75,7 +88,8 @@ export class BrowserController {
         loading: false,
         canGoBack: false,
         canGoForward: false,
-        crashed: false
+        crashed: false,
+        zoomFactor: 1
       }
     }
 
@@ -205,6 +219,43 @@ export class BrowserController {
     if (this.activeTabId) await this.navigate(this.activeTabId, `liqueia://${page}`)
   }
 
+  async setZoom(id: string, zoomFactor: number): Promise<void> {
+    const tab = this.tabs.get(id)
+    if (!tab || this.isInternal(tab.state.url)) return
+    const clamped = Math.min(3, Math.max(0.25, zoomFactor))
+    tab.view.webContents.setZoomFactor(clamped)
+    tab.state.zoomFactor = clamped
+    this.emitSnapshot()
+  }
+
+  async resetZoom(id: string): Promise<void> {
+    await this.setZoom(id, 1)
+  }
+
+  printTab(id: string): void {
+    const tab = this.tabs.get(id)
+    if (!tab || this.isInternal(tab.state.url)) {
+      this.window.webContents.print({ printBackground: true })
+      return
+    }
+    tab.view.webContents.print({ printBackground: true })
+  }
+
+  async captureTab(id: string): Promise<string | null> {
+    const tab = this.tabs.get(id)
+    const image = tab && !this.isInternal(tab.state.url)
+      ? await tab.view.webContents.capturePage()
+      : await this.window.webContents.capturePage()
+    const filePath = join(app.getPath('pictures'), `Liqueia-${Date.now()}.png`)
+    await writeFile(filePath, image.toPNG())
+    shell.showItemInFolder(filePath)
+    return filePath
+  }
+
+  toggleFullscreen(): void {
+    this.window.setFullScreen(!this.window.isFullScreen())
+  }
+
   toggleBookmark(id: string): void {
     const tab = this.tabs.get(id)
     if (!tab || this.isInternal(tab.state.url)) return
@@ -240,9 +291,9 @@ export class BrowserController {
   async clearBrowsingData(options: ClearDataOptions): Promise<void> {
     if (options.history) this.store.clearHistory()
     if (options.downloads) this.store.downloads = []
-    if (options.cache) await session.defaultSession.clearCache()
+    if (options.cache) await this.browserSession.clearCache()
     if (options.cookies) {
-      await session.defaultSession.clearStorageData({
+      await this.browserSession.clearStorageData({
         storages: ['cookies', 'localstorage', 'indexdb', 'serviceworkers', 'cachestorage']
       })
     }
@@ -298,7 +349,7 @@ export class BrowserController {
     })
     webContents.on('did-navigate', () => {
       syncNavigation()
-      if (!this.isInternal(tab.state.url)) {
+      if (!this.privateMode && !this.isInternal(tab.state.url)) {
         this.store.addHistory({
           id: randomUUID(),
           title: tab.state.title,
@@ -322,12 +373,11 @@ export class BrowserController {
   }
 
   private configureSession(): void {
-    const browserSession = session.defaultSession
     this.configurePrivacy(this.store.settings)
-    browserSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+    this.browserSession.setPermissionRequestHandler((_webContents, permission, callback) => {
       callback(['fullscreen', 'clipboard-sanitized-write'].includes(permission))
     })
-    browserSession.on('will-download', (_event, item) => {
+    this.browserSession.on('will-download', (_event, item) => {
       const id = randomUUID()
       this.downloadItems.set(id, item)
       const record: DownloadItem = {
@@ -357,7 +407,7 @@ export class BrowserController {
   }
 
   private configurePrivacy(settings = this.store.settings): void {
-    session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
+    this.browserSession.webRequest.onBeforeSendHeaders((details, callback) => {
       const headers = { ...details.requestHeaders }
       if (settings.sendDoNotTrack) headers.DNT = '1'
       callback({ requestHeaders: headers })
@@ -403,9 +453,13 @@ export class BrowserController {
   }
 
   private emitSnapshot(): void {
-    if (!this.window.isDestroyed()) {
-      this.window.webContents.send('browser:snapshot', this.snapshot())
-    }
+    if (this.snapshotTimer) return
+    this.snapshotTimer = setTimeout(() => {
+      this.snapshotTimer = null
+      if (!this.window.isDestroyed()) {
+        this.window.webContents.send('browser:snapshot', this.snapshot())
+      }
+    }, 16)
   }
 
   private isInternal(url: string): boolean {

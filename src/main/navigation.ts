@@ -12,7 +12,9 @@ export const INTERNAL_PAGES = new Set([
   'liqueia://settings',
   'liqueia://history',
   'liqueia://bookmarks',
-  'liqueia://downloads'
+  'liqueia://downloads',
+  'liqueia://extensions',
+  'liqueia://passwords'
 ])
 
 export function resolveNavigationInput(input: string, searchEngine: SearchEngine): string {

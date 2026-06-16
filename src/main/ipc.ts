@@ -3,6 +3,37 @@ import type { BrowserSettings, ClearDataOptions, InternalPage } from '../shared/
 import type { BrowserController } from './browser'
 
 export function registerIpc(controller: BrowserController): void {
+  for (const channel of [
+    'browser:get-snapshot',
+    'browser:create-tab',
+    'browser:close-tab',
+    'browser:activate-tab',
+    'browser:duplicate-tab',
+    'browser:reopen-closed-tab',
+    'browser:navigate',
+    'browser:back',
+    'browser:forward',
+    'browser:reload',
+    'browser:stop',
+    'browser:home',
+    'browser:open-internal',
+    'browser:zoom',
+    'browser:reset-zoom',
+    'browser:print-tab',
+    'browser:capture-tab',
+    'browser:toggle-fullscreen',
+    'browser:toggle-bookmark',
+    'browser:remove-bookmark',
+    'browser:update-settings',
+    'browser:clear-data',
+    'browser:show-download',
+    'browser:set-chrome-overlay',
+    'browser:set-focus-mode',
+    'browser:open-external'
+  ]) {
+    ipcMain.removeHandler(channel)
+  }
+
   ipcMain.handle('browser:get-snapshot', () => controller.snapshot())
   ipcMain.handle('browser:create-tab', (_event, url?: string) => controller.createTab(url))
   ipcMain.handle('browser:close-tab', (_event, id: string) => controller.closeTab(id))
@@ -20,6 +51,13 @@ export function registerIpc(controller: BrowserController): void {
   ipcMain.handle('browser:open-internal', (_event, page: InternalPage) =>
     controller.openInternalPage(page)
   )
+  ipcMain.handle('browser:zoom', (_event, id: string, zoomFactor: number) =>
+    controller.setZoom(id, zoomFactor)
+  )
+  ipcMain.handle('browser:reset-zoom', (_event, id: string) => controller.resetZoom(id))
+  ipcMain.handle('browser:print-tab', (_event, id: string) => controller.printTab(id))
+  ipcMain.handle('browser:capture-tab', (_event, id: string) => controller.captureTab(id))
+  ipcMain.handle('browser:toggle-fullscreen', () => controller.toggleFullscreen())
   ipcMain.handle('browser:toggle-bookmark', (_event, id: string) =>
     controller.toggleBookmark(id)
   )

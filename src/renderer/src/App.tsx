@@ -14,11 +14,15 @@ import {
   Globe2,
   Grid2X2,
   Home,
+  KeyRound,
   LoaderCircle,
   Maximize2,
   MoreHorizontal,
   Palette,
+  PanelTop,
   Plus,
+  Printer,
+  Puzzle,
   RefreshCw,
   RotateCcw,
   Search,
@@ -28,6 +32,8 @@ import {
   Star,
   Trash2,
   Waves,
+  ZoomIn,
+  ZoomOut,
   X
 } from 'lucide-react'
 import { FormEvent, useEffect, useRef, useState } from 'react'
@@ -53,6 +59,8 @@ const internalPages: Record<string, InternalPage> = {
   'liqueia://history': 'history',
   'liqueia://bookmarks': 'bookmarks',
   'liqueia://downloads': 'downloads',
+  'liqueia://extensions': 'extensions',
+  'liqueia://passwords': 'passwords',
   'liqueia://newtab': 'newtab'
 }
 
@@ -62,6 +70,7 @@ export function App(): React.JSX.Element {
   const [menuOpen, setMenuOpen] = useState(false)
   const [overlay, setOverlay] = useState<'command' | 'tabs' | null>(null)
   const [focusMode, setFocusMode] = useState(false)
+  const [isFullScreen, setIsFullScreen] = useState(false)
   const addressRef = useRef<HTMLInputElement>(null)
   const activeTab = snapshot.tabs.find((tab) => tab.id === snapshot.activeTabId)
   const isSidebar = snapshot.settings.tabLayout === 'sidebar'
@@ -80,6 +89,7 @@ export function App(): React.JSX.Element {
 
   useEffect(() => {
     const offFind = window.liqueia.onFind(() => addressRef.current?.select())
+    const offWindowState = window.liqueia.onWindowState((state) => setIsFullScreen(state.isFullScreen))
     const onKeyDown = (event: KeyboardEvent): void => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'l') {
         event.preventDefault()
@@ -108,12 +118,14 @@ export function App(): React.JSX.Element {
     window.addEventListener('keydown', onKeyDown)
     return () => {
       offFind()
+      offWindowState()
       window.removeEventListener('keydown', onKeyDown)
     }
   }, [activeTab])
 
   useEffect(() => {
     document.documentElement.dataset.theme = snapshot.settings.themeMode
+    document.documentElement.dataset.preset = snapshot.settings.themePreset
     document.documentElement.style.setProperty('--accent', snapshot.settings.accentColor)
   }, [snapshot.settings])
 
@@ -147,7 +159,7 @@ export function App(): React.JSX.Element {
 
   return (
     <main
-      className={`app-shell ${isSidebar ? 'sidebar-layout' : 'topbar-layout'} ${focusMode ? 'focus-mode' : ''} ${isMacOS ? 'is-macos' : ''}`}
+      className={`app-shell ${isSidebar ? 'sidebar-layout' : 'topbar-layout'} ${focusMode ? 'focus-mode' : ''} ${isMacOS ? 'is-macos' : ''} ${isFullScreen ? 'is-fullscreen' : ''} glass-${snapshot.settings.glassIntensity} density-${snapshot.settings.tabStyle}`}
       onPointerMove={trackLight}
     >
       <div className="liquid-field" />
@@ -237,7 +249,7 @@ export function App(): React.JSX.Element {
             <IconButton label="Liqueia menu" onClick={() => setMenuOpen((open) => !open)}>
               <MoreHorizontal />
             </IconButton>
-            {menuOpen && <BrowserMenu close={() => setMenuOpen(false)} />}
+            {menuOpen && <BrowserMenu activeTab={activeTab} close={() => setMenuOpen(false)} />}
           </div>
         </div>
       </header>
@@ -364,44 +376,73 @@ function Tab({ tab, active }: { tab: TabState; active: boolean }): React.JSX.Ele
   )
 }
 
-function BrowserMenu({ close }: { close: () => void }): React.JSX.Element {
-  const items: Array<[InternalPage, React.ReactNode, string]> = [
-    ['newtab', <Plus key="new" />, 'New tab'],
-    ['bookmarks', <BookOpen key="bookmarks" />, 'Bookmarks'],
-    ['history', <Clock3 key="history" />, 'History'],
-    ['downloads', <Download key="downloads" />, 'Downloads'],
-    ['settings', <Settings key="settings" />, 'Settings']
-  ]
+function BrowserMenu({
+  activeTab,
+  close
+}: {
+  activeTab?: TabState
+  close: () => void
+}): React.JSX.Element {
+  const zoom = activeTab?.zoomFactor ?? 1
+  const run = (action: () => void): void => {
+    action()
+    close()
+  }
   return (
     <div className="browser-menu glass-panel">
-      <div className="menu-heading">Liqueia</div>
-      {items.map(([page, icon, label]) => (
-        <button
-          key={page}
-          onClick={() => {
-            void (page === 'newtab'
-              ? window.liqueia.createTab()
-              : window.liqueia.openInternalPage(page))
-            close()
-          }}
-        >
-          {icon}
-          <span>{label}</span>
-          <ChevronRight />
-        </button>
-      ))}
+      <MenuAction icon={<Plus />} label="New Tab" shortcut="⌘T" onClick={() => run(() => void window.liqueia.createTab())} />
+      <MenuAction icon={<PanelTop />} label="New Window" shortcut="⌘N" onClick={() => run(() => void window.liqueia.newWindow(false))} />
+      <MenuAction icon={<ShieldCheck />} label="New Private Window" shortcut="⇧⌘N" onClick={() => run(() => void window.liqueia.newWindow(true))} />
       <div className="menu-separator" />
-      <button
-        onClick={() => {
-          void window.liqueia.reopenClosedTab()
-          close()
-        }}
-      >
-        <RotateCcw />
-        <span>Reopen closed tab</span>
-        <kbd>⇧⌘T</kbd>
-      </button>
+      <div className="menu-zoom-row">
+        <span><ZoomIn /> Zoom</span>
+        <button disabled={!activeTab} onClick={() => activeTab && void window.liqueia.setZoom(activeTab.id, zoom - 0.1)}><ZoomOut /></button>
+        <button disabled={!activeTab} onClick={() => activeTab && void window.liqueia.resetZoom(activeTab.id)}>{Math.round(zoom * 100)}%</button>
+        <button disabled={!activeTab} onClick={() => activeTab && void window.liqueia.setZoom(activeTab.id, zoom + 0.1)}><ZoomIn /></button>
+        <button onClick={() => void window.liqueia.toggleFullscreen()}><Maximize2 /></button>
+      </div>
+      <div className="menu-separator" />
+      <MenuAction icon={<Star />} label="Favourites" shortcut="⌥⌘B" onClick={() => run(() => void window.liqueia.openInternalPage('bookmarks'))} />
+      <MenuAction icon={<Clock3 />} label="History" shortcut="⌘Y" onClick={() => run(() => void window.liqueia.openInternalPage('history'))} />
+      <MenuAction icon={<Grid2X2 />} label="Tab Groups" trailing={<ChevronRight />} onClick={() => run(() => void window.liqueia.createTab())} />
+      <MenuAction icon={<Download />} label="Downloads" shortcut="⌥⌘L" onClick={() => run(() => void window.liqueia.openInternalPage('downloads'))} />
+      <MenuAction icon={<Puzzle />} label="Extensions" trailing={<ChevronRight />} onClick={() => run(() => void window.liqueia.openInternalPage('extensions'))} />
+      <MenuAction icon={<KeyRound />} label="Passwords" onClick={() => run(() => void window.liqueia.openInternalPage('passwords'))} />
+      <div className="menu-separator" />
+      <MenuAction icon={<Trash2 />} label="Delete Browsing Data..." shortcut="⇧⌘⌫" onClick={() => run(() => void window.liqueia.clearBrowsingData({ history: true, cache: true, cookies: true, downloads: false }))} />
+      <MenuAction icon={<Printer />} label="Print..." shortcut="⌘P" disabled={!activeTab} onClick={() => activeTab && run(() => void window.liqueia.printTab(activeTab.id))} />
+      <MenuAction icon={<Copy />} label="Split screen" disabled={!activeTab} onClick={() => activeTab && run(() => void window.liqueia.duplicateTab(activeTab.id))} />
+      <MenuAction icon={<Maximize2 />} label="Screenshot" shortcut="⇧⌘S" disabled={!activeTab} onClick={() => activeTab && run(() => void window.liqueia.captureTab(activeTab.id))} />
+      <MenuAction icon={<Search />} label="Find on Page..." shortcut="⌘F" onClick={() => run(() => document.querySelector<HTMLInputElement>('.address-bar input')?.select())} />
+      <MenuAction icon={<Sparkles />} label="More Tools" trailing={<ChevronRight />} onClick={() => run(() => void window.liqueia.reopenClosedTab())} />
+      <div className="menu-separator" />
+      <MenuAction icon={<Settings />} label="Settings" shortcut="⌘," onClick={() => run(() => void window.liqueia.openInternalPage('settings'))} />
+      <MenuAction icon={<BookOpen />} label="Help and Feedback" trailing={<ChevronRight />} onClick={() => run(() => void window.liqueia.openExternal('https://github.com/mustafadurrani02/Liqueia/issues'))} />
     </div>
+  )
+}
+
+function MenuAction({
+  icon,
+  label,
+  shortcut,
+  trailing,
+  disabled,
+  onClick
+}: {
+  icon: React.ReactNode
+  label: string
+  shortcut?: string
+  trailing?: React.ReactNode
+  disabled?: boolean
+  onClick: () => void
+}): React.JSX.Element {
+  return (
+    <button className="menu-action" disabled={disabled} onClick={onClick}>
+      <span className="menu-action-icon">{icon}</span>
+      <span>{label}</span>
+      {shortcut ? <kbd>{shortcut}</kbd> : trailing}
+    </button>
   )
 }
 
@@ -604,7 +645,25 @@ function InternalPage({
   if (page === 'settings') return <SettingsPage settings={snapshot.settings} />
   if (page === 'bookmarks') return <BookmarksPage snapshot={snapshot} activeTab={activeTab} />
   if (page === 'history') return <HistoryPage snapshot={snapshot} activeTab={activeTab} />
-  return <DownloadsPage snapshot={snapshot} />
+  if (page === 'downloads') return <DownloadsPage snapshot={snapshot} />
+  if (page === 'extensions') {
+    return (
+      <FeaturePage
+        icon={<Puzzle />}
+        eyebrow="Tools"
+        title="Extensions"
+        copy="Extension support is being prepared behind a safer permission model. For now, this page is the control centre for what will become Liqueia add-ons."
+      />
+    )
+  }
+  return (
+    <FeaturePage
+      icon={<KeyRound />}
+      eyebrow="Vault"
+      title="Passwords"
+      copy="Password management is intentionally local-first on the roadmap. Liqueia does not sync or upload saved credentials in this build."
+    />
+  )
 }
 
 function NewTab({
@@ -656,7 +715,7 @@ function SettingsPage({ settings }: { settings: BrowserSettings }): React.JSX.El
         />
         <SettingRow label="Accent colour">
           <div className="color-options">
-            {['#d8aa58', '#8f7cff', '#49c6b7', '#e66d8c', '#5f98ff'].map((color) => (
+            {['#d8aa58', '#f0c66f', '#8f7cff', '#49c6b7', '#e66d8c', '#5f98ff', '#f7f2df'].map((color) => (
               <button
                 key={color}
                 aria-label={`Use ${color} accent`}
@@ -669,6 +728,20 @@ function SettingsPage({ settings }: { settings: BrowserSettings }): React.JSX.El
             ))}
           </div>
         </SettingRow>
+        <SettingRow label="Theme world">
+          <Segmented
+            value={settings.themePreset}
+            options={['obsidian', 'champagne', 'aurora', 'midnight', 'pearl', 'rose']}
+            onChange={(value) => update({ themePreset: value as BrowserSettings['themePreset'] })}
+          />
+        </SettingRow>
+        <SettingRow label="Glass depth">
+          <Segmented
+            value={settings.glassIntensity}
+            options={['soft', 'balanced', 'vivid']}
+            onChange={(value) => update({ glassIntensity: value as BrowserSettings['glassIntensity'] })}
+          />
+        </SettingRow>
         <SettingRow label="Tab layout">
           <Segmented
             value={settings.tabLayout}
@@ -679,10 +752,15 @@ function SettingsPage({ settings }: { settings: BrowserSettings }): React.JSX.El
         <SettingRow label="Tab density">
           <Segmented
             value={settings.tabStyle}
-            options={['compact', 'comfortable']}
+            options={['compact', 'comfortable', 'spacious']}
             onChange={(value) => update({ tabStyle: value as BrowserSettings['tabStyle'] })}
           />
         </SettingRow>
+        <Toggle
+          label="Show bookmarks bar"
+          checked={settings.showBookmarksBar}
+          onChange={(checked) => update({ showBookmarksBar: checked })}
+        />
         <SettingRow label="New tab atmosphere">
           <select
             value={settings.newTabBackground}
@@ -691,6 +769,8 @@ function SettingsPage({ settings }: { settings: BrowserSettings }): React.JSX.El
             <option value="aurora">Golden aurora</option>
             <option value="midnight">Midnight bloom</option>
             <option value="mist">Silver mist</option>
+            <option value="pearl">Pearl glass</option>
+            <option value="rose">Rose dusk</option>
           </select>
         </SettingRow>
       </SettingsSection>
@@ -815,6 +895,30 @@ function DownloadsPage({ snapshot }: { snapshot: BrowserSnapshot }): React.JSX.E
           action: () => void window.liqueia.showDownload(download.id)
         }))}
       />
+    </PageScaffold>
+  )
+}
+
+function FeaturePage({
+  icon,
+  eyebrow,
+  title,
+  copy
+}: {
+  icon: React.ReactNode
+  eyebrow: string
+  title: string
+  copy: string
+}): React.JSX.Element {
+  return (
+    <PageScaffold icon={icon} eyebrow={eyebrow} title={title}>
+      <div className="feature-card liquid-glass">
+        <Sparkles />
+        <p>{copy}</p>
+        <button className="primary-button" onClick={() => void window.liqueia.openInternalPage('settings')}>
+          <Settings /> Open settings
+        </button>
+      </div>
     </PageScaffold>
   )
 }

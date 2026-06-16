@@ -1,4 +1,4 @@
-import { BrowserWindow, Menu, app, nativeImage, nativeTheme } from 'electron'
+import { BrowserWindow, Menu, app, ipcMain, nativeImage, nativeTheme } from 'electron'
 import { join } from 'node:path'
 import { BrowserController } from './browser'
 import { registerIpc } from './ipc'
@@ -6,7 +6,7 @@ import { registerIpc } from './ipc'
 let mainWindow: BrowserWindow | null = null
 let controller: BrowserController | null = null
 
-function createWindow(): void {
+function createWindow(options: { privateMode?: boolean } = {}): void {
   const iconPath = join(__dirname, '../renderer/liqueia-planet.png')
   const icon = nativeImage.createFromPath(iconPath)
   mainWindow = new BrowserWindow({
@@ -14,7 +14,7 @@ function createWindow(): void {
     height: 920,
     minWidth: 960,
     minHeight: 640,
-    title: 'Liqueia',
+    title: options.privateMode ? 'Liqueia Private' : 'Liqueia',
     icon,
     backgroundColor: '#0b0c11',
     titleBarStyle: 'hiddenInset',
@@ -33,9 +33,15 @@ function createWindow(): void {
     app.dock.setIcon(icon)
   }
 
-  controller = new BrowserController(mainWindow)
+  controller = new BrowserController(mainWindow, Boolean(options.privateMode))
   registerIpc(controller)
   installMenu(controller)
+
+  const emitWindowState = (): void => {
+    mainWindow?.webContents.send('browser:window-state', {
+      isFullScreen: Boolean(mainWindow?.isFullScreen())
+    })
+  }
 
   mainWindow.webContents.on('preload-error', (_event, preloadPath, error) => {
     console.error(`Liqueia preload failed at ${preloadPath}:`, error)
@@ -51,6 +57,7 @@ function createWindow(): void {
 
   mainWindow.webContents.once('did-finish-load', () => {
     void controller?.initialize()
+    emitWindowState()
   })
   mainWindow.webContents.on(
     'did-fail-load',
@@ -71,6 +78,8 @@ function createWindow(): void {
     mainWindow = null
     controller = null
   })
+  mainWindow.on('enter-full-screen', emitWindowState)
+  mainWindow.on('leave-full-screen', emitWindowState)
 }
 
 function installMenu(browser: BrowserController): void {
@@ -181,6 +190,10 @@ function installMenu(browser: BrowserController): void {
 
 app.whenReady().then(() => {
   nativeTheme.themeSource = 'system'
+  ipcMain.removeHandler('browser:new-window')
+  ipcMain.handle('browser:new-window', (_event, privateMode = false) => {
+    createWindow({ privateMode: Boolean(privateMode) })
+  })
   createWindow()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

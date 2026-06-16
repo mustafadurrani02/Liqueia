@@ -21,8 +21,14 @@ const api: BrowserAPI = {
   stop: (id: string) => ipcRenderer.invoke('browser:stop', id),
   goHome: (id: string) => ipcRenderer.invoke('browser:home', id),
   openInternalPage: (page: InternalPage) => ipcRenderer.invoke('browser:open-internal', page),
+  newWindow: (privateMode = false) => ipcRenderer.invoke('browser:new-window', privateMode),
   toggleBookmark: (id: string) => ipcRenderer.invoke('browser:toggle-bookmark', id),
   removeBookmark: (id: string) => ipcRenderer.invoke('browser:remove-bookmark', id),
+  setZoom: (id: string, zoomFactor: number) => ipcRenderer.invoke('browser:zoom', id, zoomFactor),
+  resetZoom: (id: string) => ipcRenderer.invoke('browser:reset-zoom', id),
+  printTab: (id: string) => ipcRenderer.invoke('browser:print-tab', id),
+  captureTab: (id: string) => ipcRenderer.invoke('browser:capture-tab', id),
+  toggleFullscreen: () => ipcRenderer.invoke('browser:toggle-fullscreen'),
   updateSettings: (settings: Partial<BrowserSettings>) =>
     ipcRenderer.invoke('browser:update-settings', settings),
   clearBrowsingData: (options: ClearDataOptions) =>
@@ -41,6 +47,12 @@ const api: BrowserAPI = {
     const listener = (): void => callback()
     ipcRenderer.on('browser:find', listener)
     return () => ipcRenderer.removeListener('browser:find', listener)
+  },
+  onWindowState: (callback: (state: { isFullScreen: boolean }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, state: { isFullScreen: boolean }): void =>
+      callback(state)
+    ipcRenderer.on('browser:window-state', listener)
+    return () => ipcRenderer.removeListener('browser:window-state', listener)
   }
 }
 

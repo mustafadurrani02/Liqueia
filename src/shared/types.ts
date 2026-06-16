@@ -1,7 +1,9 @@
 export type ThemeMode = 'light' | 'dark' | 'system'
 export type TabLayout = 'topbar' | 'sidebar'
-export type TabStyle = 'compact' | 'comfortable'
+export type TabStyle = 'compact' | 'comfortable' | 'spacious'
 export type SearchEngine = 'google' | 'duckduckgo' | 'bing' | 'brave'
+export type ThemePreset = 'obsidian' | 'champagne' | 'aurora' | 'midnight' | 'pearl' | 'rose'
+export type GlassIntensity = 'soft' | 'balanced' | 'vivid'
 
 export interface BrowserSettings {
   themeMode: ThemeMode
@@ -11,6 +13,9 @@ export interface BrowserSettings {
   homepage: string
   tabLayout: TabLayout
   tabStyle: TabStyle
+  themePreset: ThemePreset
+  glassIntensity: GlassIntensity
+  showBookmarksBar: boolean
   sendDoNotTrack: boolean
   blockThirdPartyCookies: boolean
   blockPopups: boolean
@@ -25,6 +30,7 @@ export interface TabState {
   canGoBack: boolean
   canGoForward: boolean
   crashed: boolean
+  zoomFactor: number
 }
 
 export interface Bookmark {
@@ -61,7 +67,14 @@ export interface BrowserSnapshot {
   settings: BrowserSettings
 }
 
-export type InternalPage = 'newtab' | 'settings' | 'history' | 'bookmarks' | 'downloads'
+export type InternalPage =
+  | 'newtab'
+  | 'settings'
+  | 'history'
+  | 'bookmarks'
+  | 'downloads'
+  | 'extensions'
+  | 'passwords'
 
 export interface ClearDataOptions {
   history: boolean
@@ -84,8 +97,14 @@ export interface BrowserAPI {
   stop: (tabId: string) => Promise<void>
   goHome: (tabId: string) => Promise<void>
   openInternalPage: (page: InternalPage) => Promise<void>
+  newWindow: (privateMode?: boolean) => Promise<void>
   toggleBookmark: (tabId: string) => Promise<void>
   removeBookmark: (bookmarkId: string) => Promise<void>
+  setZoom: (tabId: string, zoomFactor: number) => Promise<void>
+  resetZoom: (tabId: string) => Promise<void>
+  printTab: (tabId: string) => Promise<void>
+  captureTab: (tabId: string) => Promise<string | null>
+  toggleFullscreen: () => Promise<void>
   updateSettings: (settings: Partial<BrowserSettings>) => Promise<void>
   clearBrowsingData: (options: ClearDataOptions) => Promise<void>
   showDownload: (downloadId: string) => Promise<void>
@@ -94,6 +113,7 @@ export interface BrowserAPI {
   openExternal: (url: string) => Promise<void>
   onSnapshot: (callback: (snapshot: BrowserSnapshot) => void) => () => void
   onFind: (callback: () => void) => () => void
+  onWindowState: (callback: (state: { isFullScreen: boolean }) => void) => () => void
 }
 
 export const DEFAULT_SETTINGS: BrowserSettings = {
@@ -104,6 +124,9 @@ export const DEFAULT_SETTINGS: BrowserSettings = {
   homepage: 'liqueia://newtab',
   tabLayout: 'topbar',
   tabStyle: 'comfortable',
+  themePreset: 'obsidian',
+  glassIntensity: 'balanced',
+  showBookmarksBar: true,
   sendDoNotTrack: true,
   blockThirdPartyCookies: true,
   blockPopups: true
